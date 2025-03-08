@@ -2,12 +2,21 @@
 
 Quickly generate videos with lip synchronization by combining voice audio and custom mouth images.
 
-- **Rhubarb Lip Sync** automatically calculates the timing of lip movements.
-- **Whisper AI** automatically generates audio transcription, if needed.
-- **FFmpeg** exports the final result in `.mp4` video with custom background or transparent `.mov`.
+<table border="0" cellpadding="0" cellspacing="0">
+  <tr>
+    <td style="vertical-align: middle;">
+      <img src="logo.jpeg" alt="Lipsync Generator Logo" width="120">
+    </td>
+    <td style="vertical-align: middle; padding-left: 15px;">
+      <ul>
+        <li><strong>Rhubarb Lip Sync</strong> automatically calculates the timing of lip movements.</li>
+        <li><strong>Whisper AI</strong> automatically generates audio transcription, if needed.</li>
+        <li><strong>FFmpeg</strong> exports the final result in <code>.mp4</code> video with custom background or transparent <code>.mov</code>.</li>
+      </ul>
+    </td>
+  </tr>
+</table>
 
----
-![Lipsync Generator Logo](logo.jpeg)
 ---
 
 ## 🛠️ Installation
