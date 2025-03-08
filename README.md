@@ -24,7 +24,7 @@ Select the file compatible with your operating system:
 ### 2️⃣ Clone this repository
 Open a terminal in the newly extracted folder and run:
 ```bash
-cd Rhubarb-Lip-Sync-<version>-Linux  # Change with the correct name of your folder
+cd Rhubarb-Lip-Sync-<version>-<system>  # Change with the correct name of your folder
 git clone https://github.com/fralapo/Lipsync-Generator-with-Rhubarb-and-Whisper-AI.git
 ```
 
