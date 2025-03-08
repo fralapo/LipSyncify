@@ -55,7 +55,7 @@ If needed, download it from [here](https://ffmpeg.org/download.html).
 │   ├── 📁 mouth_images/      # Transparent PNGs for mouths
 │   ├── 🎵 audio.wav          # Audio file to synchronize
 │   └── 📜 transcript.txt     # (Optional) Audio transcription
-├── 📝 generate_concat.py     # Main script
+├── 📝 generate_lipsync.py     # Main script
 ├── 📜 requirements.txt       # Python dependencies
 └── 🛠 rhubarb                # Rhubarb Lip Sync executable
 ```
@@ -70,19 +70,19 @@ Open the terminal in the project folder and run:
 
 Usage examples:
 ```bash
-python3 generate_concat.py                         # Generate MP4 with white background
+python3 generate_lipsync.py                         # Generate MP4 with white background
 ```
 ```bash
-python3 generate_concat.py --background yellow     # Generate MP4 with yellow background
+python3 generate_lipsync.py --background yellow     # Generate MP4 with yellow background
 ```
 ```bash
-python3 generate_concat.py --format mov            # Generate MOV with transparency
+python3 generate_lipsync.py --format mov            # Generate MOV with transparency
 ```
 ```bash
-python3 generate_concat.py --model small --cpu     # Use small Whisper model on CPU
+python3 generate_lipsync.py --model small --cpu     # Use small Whisper model on CPU
 ```
 ```bash
-python3 generate_concat.py --help                  # Show this help message
+python3 generate_lipsync.py --help                  # Show this help message
 ```
 
 Available colors:
@@ -94,10 +94,10 @@ gray/grey, lime
 
 You can also specify hexadecimal colors:
 ```bash
-python3 generate_concat.py --background 00FF00     # Green (hexadecimal)
+python3 generate_lipsync.py --background 00FF00     # Green (hexadecimal)
 ```
 ```bash
-python3 generate_concat.py --background #FF0000    # Red (hexadecimal with #)
+python3 generate_lipsync.py --background #FF0000    # Red (hexadecimal with #)
 ```
 
 ---
