@@ -1,0 +1,7 @@
+pandas
+openai-whisper
+ffmpeg-python
+pillow
+torch
+shutil
+argparse
