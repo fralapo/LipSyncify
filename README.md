@@ -71,9 +71,17 @@ Open the terminal in the project folder and run:
 Usage examples:
 ```bash
 python3 generate_concat.py                         # Generate MP4 with white background
+```
+```bash
 python3 generate_concat.py --background yellow     # Generate MP4 with yellow background
+```
+```bash
 python3 generate_concat.py --format mov            # Generate MOV with transparency
+```
+```bash
 python3 generate_concat.py --model small --cpu     # Use small Whisper model on CPU
+```
+```bash
 python3 generate_concat.py --help                  # Show this help message
 ```
 
@@ -87,6 +95,8 @@ gray/grey, lime
 You can also specify hexadecimal colors:
 ```bash
 python3 generate_concat.py --background 00FF00     # Green (hexadecimal)
+```
+```bash
 python3 generate_concat.py --background #FF0000    # Red (hexadecimal with #)
 ```
 
