@@ -65,7 +65,7 @@ parser.add_argument(
 parser.add_argument(
     "--keep-tmp",
     action="store_true",
-    help="Keep temporary files sync.tsv and concat.txt",
+    help="Keep temporary files (sync.tsv, concat.txt, temp_images folder)",
 )
 args = parser.parse_args()
 
@@ -90,6 +90,8 @@ if not os.path.exists(RHUBARB_EXEC):
 
 # Check and determine image resolutions
 print("🔍 Checking mouth images resolution...")
+
+# List of all the vicults
 all_shapes = ["A", "B", "C", "D", "E", "F", "G", "H", "TH", "X"]
 found_images = []
 resolutions = []
@@ -146,7 +148,7 @@ else:
 # rhubarb_cmd = [
 #     RHUBARB_EXEC, "-f", "tsv", "-r", "phonetic", "-o", sync_file_path, "-d", transcript_file, AUDIO_FILE
 # ]
-# Otherwise, default:
+# Otherwise, default pocketSphinx:
 rhubarb_cmd = [
     RHUBARB_EXEC, "-f", "tsv", "-o", sync_file_path, "-d", transcript_file, AUDIO_FILE
 ]
@@ -180,10 +182,9 @@ except FileNotFoundError:
 # ---------------------------------------------------------
 print("⏳ Preparing concatenation file for FFmpeg...")
 try:
-    # Read the Rhubarb table
     sync_data = pd.read_csv(sync_file_path, sep="\t", header=None, names=["timestamp", "viseme"])
 
-    # Get total audio duration
+    # Get the Audio Duration
     ffprobe_cmd = [
         "ffprobe", "-v", "error",
         "-show_entries", "format=duration",
@@ -193,7 +194,7 @@ try:
     duration = float(subprocess.check_output(ffprobe_cmd).decode().strip())
     print(f"🔎 Audio duration: {duration:.2f} seconds")
 
-    # Ensure we have a final row covering until the end of the audio
+    # Adds a final line if Rhubarb doesn't cover all the audio
     last_timestamp = sync_data.iloc[-1]["timestamp"]
     last_viseme = sync_data.iloc[-1]["viseme"]
     if last_timestamp < duration:
@@ -202,14 +203,13 @@ try:
             pd.DataFrame([[duration, last_viseme]], columns=["timestamp", "viseme"])
         ], ignore_index=True)
 
-    # Create start/end columns
+    # start/end per ogni riga
     sync_data["start"] = sync_data["timestamp"].shift().fillna(0)
     sync_data["end"] = sync_data["timestamp"]
 
-    # Prepare the temp_images folder
+    # Create temporary folder for images
     os.makedirs(TEMP_IMAGES_DIR, exist_ok=True)
 
-    # Helper to parse color
     def parse_color_hex(c_str):
         c_str = c_str.strip()
         if c_str.startswith('#'):
@@ -219,9 +219,8 @@ try:
         b = int(c_str[4:6], 16)
         return (r, g, b)
 
-    # Distinguish between MP4 (colored BG) and MOV (transparency)
     if args.format == "mp4":
-        # Map common color names to hex
+        # Map some known colors
         color_mapping = {
             "green": "#00FF00",
             "lime": "#00FF00",
@@ -271,7 +270,7 @@ try:
                     bg_img.alpha_composite(mouth_img, (offx, offy))
                     bg_img.save(dst)
     else:
-        # MOV => transparency, copy as is
+        # MOV => It leaves the transparency
         print("🎥 MOV format requested: maintaining transparency, copying PNGs as they are.")
         for shape in all_shapes:
             src = os.path.join(MOUTH_IMAGES_DIR, f"mouth_{shape}.png")
@@ -280,33 +279,32 @@ try:
                 with Image.open(src) as im:
                     im.save(dst)
 
-    # Create concat file
+    # Creating the Concat File
     with open(concat_file_path, "w") as f:
         for i, row in sync_data.iterrows():
             start_time = float(row["start"])
             end_time = float(row["end"])
             shape = row["viseme"]
 
-            duration_segment = end_time - start_time
-            if duration_segment <= 0:
+            seg_duration = end_time - start_time
+            if seg_duration <= 0:
                 continue
 
             mouth_path = os.path.join(TEMP_IMAGES_DIR, f"mouth_{shape}.png")
             if not os.path.exists(mouth_path):
-                # fallback if shape doesn't exist, e.g. H not provided
+                # If it doesn't exist, fallback on X
                 mouth_path = os.path.join(TEMP_IMAGES_DIR, "mouth_X.png")
 
             f.write(f"file '{mouth_path}'\n")
-            f.write(f"duration {duration_segment:.2f}\n")
+            f.write(f"duration {seg_duration:.2f}\n")
 
     print("✅ Concatenation file prepared!")
+
 except Exception as e:
     print(f"❌ Error in preparing the concatenation file: {str(e)}")
     exit(1)
 
-# ---------------------------------------------------------
-# 5) Invoke FFmpeg to create the final video
-# ---------------------------------------------------------
+# 5) Video generation with FFmpeg
 if args.format == "mov":
     ffmpeg_cmd = [
         "ffmpeg",
@@ -344,6 +342,7 @@ print(f"⏳ Generating the {args.format.upper()} video...")
 subprocess.run(ffmpeg_cmd, check=True)
 print(f"✅ {args.format.upper()} video generated!")
 
+# Cleanup
 if not args.keep_tmp:
     if os.path.exists(sync_file_path):
         os.remove(sync_file_path)
