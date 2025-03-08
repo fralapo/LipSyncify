@@ -128,4 +128,13 @@ assets/mouth_images/
 
 ---
 
+## 🙏 **Acknowledgments**
+
+Special thanks to the following open-source projects that made this repository possible:
+
+- [**OpenAI Whisper**](https://github.com/openai/whisper) – for powerful and accurate audio transcription.
+- [**Rhubarb Lip Sync**](https://github.com/DanielSWolf/rhubarb-lip-sync) – a robust tool for automated lip synchronization.
+
+---
+
 🎉 **Happy lipsync!** 🚀
