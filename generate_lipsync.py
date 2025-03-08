@@ -7,6 +7,7 @@ import argparse
 from PIL import Image
 import torch
 import shutil
+import uuid
 
 # Set up folders
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -89,40 +90,34 @@ if not os.path.exists(RHUBARB_EXEC):
 
 # Check and determine image resolutions
 print("🔍 Checking mouth images resolution...")
-mouth_shapes = ["A", "B", "C", "D", "E", "F", "G", "X"]
+all_shapes = ["A", "B", "C", "D", "E", "F", "G", "H", "TH", "X"]
 found_images = []
 resolutions = []
 
-for mouth_shape in mouth_shapes:
-    img_path = os.path.join(MOUTH_IMAGES_DIR, f"mouth_{mouth_shape}.png")
+for shape in all_shapes:
+    img_path = os.path.join(MOUTH_IMAGES_DIR, f"mouth_{shape}.png")
     if os.path.exists(img_path):
         found_images.append(img_path)
-        img = Image.open(img_path)
-        resolutions.append((img.width, img.height))
+        with Image.open(img_path) as img:
+            resolutions.append((img.width, img.height))
 
 if not found_images:
     print("❌ Error: No mouth images found in the mouth_images folder.")
     exit(1)
 
-# Check if all images have the same resolution
 if len(set(resolutions)) > 1:
     print("❌ Error: The mouth images have different resolutions. All images must have the same resolution.")
-    print("Found resolutions:")
-    for img_path, resolution in zip(found_images, resolutions):
-        print(f"  - {os.path.basename(img_path)}: {resolution[0]}x{resolution[1]}")
+    for path_img, resolution in zip(found_images, resolutions):
+        print(f"  - {os.path.basename(path_img)}: {resolution[0]}x{resolution[1]}")
     exit(1)
 
-# Set final resolution based on the mouth images
 FINAL_WIDTH, FINAL_HEIGHT = resolutions[0]
 print(f"✅ All mouth images have the same resolution: {FINAL_WIDTH}x{FINAL_HEIGHT}")
 
-# Create temporary files
-sync_file = tempfile.NamedTemporaryFile(
-    delete=not args.keep_tmp, suffix=".tsv", dir=BASE_DIR
-)
-concat_file = tempfile.NamedTemporaryFile(
-    delete=not args.keep_tmp, suffix=".txt", dir=BASE_DIR
-)
+# Create unique filenames for temporary sync/concat files
+sync_file_path = os.path.join(BASE_DIR, f"sync_{uuid.uuid4().hex}.tsv")
+concat_file_path = os.path.join(BASE_DIR, f"concat_{uuid.uuid4().hex}.txt")
+
 OUTPUT_VIDEO = os.path.join(BASE_DIR, f"lipsync.{args.format}")
 
 # ---------------------------------------------------------
@@ -133,30 +128,34 @@ if os.path.exists(TRANSCRIPT_FILE):
     transcript_file = TRANSCRIPT_FILE
 else:
     print(f"⏳ No transcription found, generating with Whisper {args.model}...")
-
     device = "cpu" if args.cpu else ("cuda" if torch.cuda.is_available() else "cpu")
     print(f"🖥️ Using {device.upper()} for Whisper...")
 
     model = whisper.load_model(args.model, device=device)
     transcription_result = model.transcribe(AUDIO_FILE)
 
-    with tempfile.NamedTemporaryFile(delete=False, mode="w", suffix=".txt") as temp_transcript:
-        transcript_file = temp_transcript.name
-        temp_transcript.write(transcription_result["text"])
+    with tempfile.NamedTemporaryFile(delete=False, mode="w", suffix=".txt") as tmpf:
+        transcript_file = tmpf.name
+        tmpf.write(transcription_result["text"])
     print(f"✅ Transcription completed! Temporary file: {transcript_file}")
 
 # ---------------------------------------------------------
 # 2) Run Rhubarb: generate the .tsv synchronization file
 # ---------------------------------------------------------
+# For better coverage, force phonetic (if your language is not English)
+# rhubarb_cmd = [
+#     RHUBARB_EXEC, "-f", "tsv", "-r", "phonetic", "-o", sync_file_path, "-d", transcript_file, AUDIO_FILE
+# ]
+# Otherwise, default:
 rhubarb_cmd = [
-    RHUBARB_EXEC, "-f", "tsv", "-o", sync_file.name, "-d", transcript_file, AUDIO_FILE
+    RHUBARB_EXEC, "-f", "tsv", "-o", sync_file_path, "-d", transcript_file, AUDIO_FILE
 ]
 
 print("⏳ Generating synchronization file with Rhubarb...")
 subprocess.run(rhubarb_cmd, check=True)
 print("✅ Synchronization completed!")
 
-# If the transcription was automatically generated, delete the temporary file
+# If transcription was generated automatically, remove it
 if transcript_file != TRANSCRIPT_FILE:
     os.remove(transcript_file)
     print("🗑️ Temporary transcription file deleted.")
@@ -182,49 +181,47 @@ except FileNotFoundError:
 print("⏳ Preparing concatenation file for FFmpeg...")
 try:
     # Read the Rhubarb table
-    sync_data = pd.read_csv(sync_file.name, sep="\t", header=None, names=["timestamp", "viseme"])
-    
-    # start / end for each interval
-    sync_data["start"] = sync_data["timestamp"].shift().fillna(0)
-    sync_data["end"] = sync_data["timestamp"]
-    
-    # Total audio duration via ffprobe
+    sync_data = pd.read_csv(sync_file_path, sep="\t", header=None, names=["timestamp", "viseme"])
+
+    # Get total audio duration
     ffprobe_cmd = [
-        "ffprobe", "-v", "error", "-show_entries", "format=duration",
-        "-of", "default=noprint_wrappers=1:nokey=1", AUDIO_FILE
+        "ffprobe", "-v", "error",
+        "-show_entries", "format=duration",
+        "-of", "default=noprint_wrappers=1:nokey=1",
+        AUDIO_FILE
     ]
     duration = float(subprocess.check_output(ffprobe_cmd).decode().strip())
-    
-    # Add last line to cover until the end of audio
-    last_row = pd.DataFrame({
-        "timestamp": [duration],
-        "viseme": [sync_data.iloc[-1]["viseme"]],
-        "start": [sync_data.iloc[-1]["timestamp"]],
-        "end": [duration]
-    })
-    sync_data = pd.concat([sync_data, last_row], ignore_index=True)
+    print(f"🔎 Audio duration: {duration:.2f} seconds")
 
-    # -----------------------------------------------------
-    # If the user wants MP4 => compose images on colored background
-    # If the user wants MOV => copy PNGs "as is"
-    # -----------------------------------------------------
+    # Ensure we have a final row covering until the end of the audio
+    last_timestamp = sync_data.iloc[-1]["timestamp"]
+    last_viseme = sync_data.iloc[-1]["viseme"]
+    if last_timestamp < duration:
+        sync_data = pd.concat([
+            sync_data,
+            pd.DataFrame([[duration, last_viseme]], columns=["timestamp", "viseme"])
+        ], ignore_index=True)
+
+    # Create start/end columns
+    sync_data["start"] = sync_data["timestamp"].shift().fillna(0)
+    sync_data["end"] = sync_data["timestamp"]
+
+    # Prepare the temp_images folder
     os.makedirs(TEMP_IMAGES_DIR, exist_ok=True)
 
+    # Helper to parse color
     def parse_color_hex(c_str):
-        """Converts e.g. '00FF00' or '#00FF00' to (0,255,0)."""
         c_str = c_str.strip()
-        # If c_str starts with '#', remove it
         if c_str.startswith('#'):
             c_str = c_str[1:]
-        # Now c_str = "00FF00"
         r = int(c_str[0:2], 16)
         g = int(c_str[2:4], 16)
         b = int(c_str[4:6], 16)
         return (r, g, b)
 
+    # Distinguish between MP4 (colored BG) and MOV (transparency)
     if args.format == "mp4":
-        # Convert the user string to (R,G,B)
-        # If the user wrote "green", "blue", "white", etc., map them to hex.
+        # Map common color names to hex
         color_mapping = {
             "green": "#00FF00",
             "lime": "#00FF00",
@@ -252,78 +249,55 @@ try:
         if raw_color in color_mapping:
             chosen_hex = color_mapping[raw_color]
         else:
-            # If it's not a known name, treat it as hex (with or without #)
             if raw_color.startswith("#"):
                 chosen_hex = raw_color
             else:
-                # Add # if missing
                 if len(raw_color) == 6:
                     chosen_hex = "#" + raw_color
                 else:
-                    # fallback to white
                     chosen_hex = "#FFFFFF"
-        # Now parse_color_hex
+
         bg_r, bg_g, bg_b = parse_color_hex(chosen_hex)
+        print(f"🎨 Composing mouths on background {chosen_hex} (R={bg_r},G={bg_g},B={bg_b})")
 
-        print(f"🎨 Composing mouths on colored background {chosen_hex} (R={bg_r},G={bg_g},B={bg_b})")
-
-        for mouth_shape in ["A", "B", "C", "D", "E", "F", "G", "X"]:
-            src_file = os.path.join(MOUTH_IMAGES_DIR, f"mouth_{mouth_shape}.png")
-            dst_file = os.path.join(TEMP_IMAGES_DIR, f"mouth_{mouth_shape}.png")
-
-            if os.path.exists(src_file):
-                # Load the mouth
-                mouth_img = Image.open(src_file).convert("RGBA")
-                # Create a colored background with the same dimensions as mouth images
-                bg_img = Image.new("RGBA", (FINAL_WIDTH, FINAL_HEIGHT), (bg_r, bg_g, bg_b, 255))
-                
-                # (Optional) If the mouth is smaller, center it
-                offx = (FINAL_WIDTH - mouth_img.width) // 2
-                offy = (FINAL_HEIGHT - mouth_img.height) // 2
-                
-                bg_img.alpha_composite(mouth_img, (offx, offy))
-                # Save the result
-                bg_img.save(dst_file)
-            else:
-                print(f"⚠️ Image {src_file} not found.")
+        for shape in all_shapes:
+            src = os.path.join(MOUTH_IMAGES_DIR, f"mouth_{shape}.png")
+            dst = os.path.join(TEMP_IMAGES_DIR, f"mouth_{shape}.png")
+            if os.path.exists(src):
+                with Image.open(src).convert("RGBA") as mouth_img:
+                    bg_img = Image.new("RGBA", (FINAL_WIDTH, FINAL_HEIGHT), (bg_r, bg_g, bg_b, 255))
+                    offx = (FINAL_WIDTH - mouth_img.width)//2
+                    offy = (FINAL_HEIGHT - mouth_img.height)//2
+                    bg_img.alpha_composite(mouth_img, (offx, offy))
+                    bg_img.save(dst)
     else:
-        # MOV => transparency. Copy PNGs as they are
+        # MOV => transparency, copy as is
         print("🎥 MOV format requested: maintaining transparency, copying PNGs as they are.")
-        for mouth_shape in ["A", "B", "C", "D", "E", "F", "G", "X"]:
-            src_file = os.path.join(MOUTH_IMAGES_DIR, f"mouth_{mouth_shape}.png")
-            dst_file = os.path.join(TEMP_IMAGES_DIR, f"mouth_{mouth_shape}.png")
-            if os.path.exists(src_file):
-                Image.open(src_file).save(dst_file)
-            else:
-                print(f"⚠️ Image {src_file} not found.")
+        for shape in all_shapes:
+            src = os.path.join(MOUTH_IMAGES_DIR, f"mouth_{shape}.png")
+            dst = os.path.join(TEMP_IMAGES_DIR, f"mouth_{shape}.png")
+            if os.path.exists(src):
+                with Image.open(src) as im:
+                    im.save(dst)
 
-    # -----------------------------------------------------
-    # Create the concatenation file (concat.txt)
-    # -----------------------------------------------------
-    with open(concat_file.name, "w") as f:
-        prev_end = 0.0
-
+    # Create concat file
+    with open(concat_file_path, "w") as f:
         for i, row in sync_data.iterrows():
             start_time = float(row["start"])
             end_time = float(row["end"])
-            mouth_shape = row["viseme"]
+            shape = row["viseme"]
 
-            # Gap
-            if start_time > prev_end and i > 0:
-                f.write(f"file '{os.path.join(TEMP_IMAGES_DIR, 'mouth_X.png')}'\n")
-                f.write(f"duration {start_time - prev_end}\n")
+            duration_segment = end_time - start_time
+            if duration_segment <= 0:
+                continue
 
-            # Current image
-            f.write(f"file '{os.path.join(TEMP_IMAGES_DIR, f'mouth_{mouth_shape}.png')}'\n")
+            mouth_path = os.path.join(TEMP_IMAGES_DIR, f"mouth_{shape}.png")
+            if not os.path.exists(mouth_path):
+                # fallback if shape doesn't exist, e.g. H not provided
+                mouth_path = os.path.join(TEMP_IMAGES_DIR, "mouth_X.png")
 
-            # Specify duration
-            if i < len(sync_data) - 1:
-                f.write(f"duration {end_time - start_time}\n")
-            else:
-                # last image
-                f.write(f"duration {end_time - start_time}\n")
-
-            prev_end = end_time
+            f.write(f"file '{mouth_path}'\n")
+            f.write(f"duration {duration_segment:.2f}\n")
 
     print("✅ Concatenation file prepared!")
 except Exception as e:
@@ -333,20 +307,13 @@ except Exception as e:
 # ---------------------------------------------------------
 # 5) Invoke FFmpeg to create the final video
 # ---------------------------------------------------------
-# If MP4 → PNGs already have the colored background. Just concatenate them + audio
-# If MOV → PNGs have transparency and correspond to the entire frame. Just concatenate them + audio
-#
-# The main difference is the codec/pix_fmt: for .mov we use ProRes 4444 to maintain alpha
-# For .mp4 we use libx264 (yuv420p)
-# ---------------------------------------------------------
-
 if args.format == "mov":
-    # MOV with transparency
     ffmpeg_cmd = [
         "ffmpeg",
         *ffmpeg_gpu_args,
         "-y",
-        "-f", "concat", "-safe", "0", "-i", concat_file.name,
+        "-f", "concat", "-safe", "0",
+        "-i", concat_file_path,
         "-i", AUDIO_FILE,
         "-vsync", "vfr",
         "-pix_fmt", "yuva444p10le",
@@ -354,16 +321,15 @@ if args.format == "mov":
         "-profile:v", "4444",
         "-c:a", "aac",
         "-strict", "experimental",
-        "-shortest",
         OUTPUT_VIDEO
     ]
 else:
-    # MP4 with colored background already in the PNGs
     ffmpeg_cmd = [
         "ffmpeg",
         *ffmpeg_gpu_args,
         "-y",
-        "-f", "concat", "-safe", "0", "-i", concat_file.name,
+        "-f", "concat", "-safe", "0",
+        "-i", concat_file_path,
         "-i", AUDIO_FILE,
         "-vsync", "vfr",
         "-pix_fmt", "yuv420p",
@@ -371,14 +337,19 @@ else:
         "-profile:v", "high",
         "-c:a", "aac",
         "-strict", "experimental",
-        "-shortest",
         OUTPUT_VIDEO
     ]
 
 print(f"⏳ Generating the {args.format.upper()} video...")
 subprocess.run(ffmpeg_cmd, check=True)
 print(f"✅ {args.format.upper()} video generated!")
+
 if not args.keep_tmp:
+    if os.path.exists(sync_file_path):
+        os.remove(sync_file_path)
+    if os.path.exists(concat_file_path):
+        os.remove(concat_file_path)
     shutil.rmtree(TEMP_IMAGES_DIR, ignore_errors=True)
-    print(f"🗑️ Temporary folder '{TEMP_IMAGES_DIR}' automatically removed.")
+    print("🗑️ Temporary files removed.")
+
 print("🎬 Processes completed! Check the generated files. 🚀")
