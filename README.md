@@ -7,6 +7,8 @@ Quickly generate videos with lip synchronization by combining voice audio and cu
 - **FFmpeg** exports the final result in `.mp4` video with custom background or transparent `.mov`.
 
 ---
+image:logo.jpeg[align="center"]
+---
 
 ## 🛠️ Installation
 
