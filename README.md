@@ -55,9 +55,9 @@ If needed, download it from [here](https://ffmpeg.org/download.html).
 │   ├── 📁 mouth_images/      # Transparent PNGs for mouths
 │   ├── 🎵 audio.wav          # Audio file to synchronize
 │   └── 📜 transcript.txt     # (Optional) Audio transcription
-├── 📝 generate_lipsync.py     # Main script
+├── 📝 generate_lipsync.py    # Main script
 ├── 📜 requirements.txt       # Python dependencies
-└── 🛠 rhubarb                # Rhubarb Lip Sync executable
+└── 🛠 rhubarb                 # Rhubarb Lip Sync executable
 ```
 
 📌 If the `transcript.txt` file is missing, Whisper will generate it automatically.
