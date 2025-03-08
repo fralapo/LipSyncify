@@ -25,7 +25,7 @@ Select the file compatible with your operating system:
 Open a terminal in the newly extracted folder and run:
 ```bash
 cd Rhubarb-Lip-Sync-<version>-<system>  # Change with the correct name of your folder
-git clone https://github.com/fralapo/Lipsync-Generator-with-Rhubarb-and-Whisper-AI.git
+git clone https://github.com/fralapo/LipSyncify.git
 ```
 
 ### 3️⃣ Install Python dependencies
